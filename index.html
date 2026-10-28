@@ -155,6 +155,8 @@ th.r,td.r{text-align:right}
 <div id="modal" hidden></div>
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 <input type="file" id="imp" accept="application/json,.json" hidden>
+<input type="file" id="impx" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 
 <script>
 (function(){
@@ -503,8 +505,8 @@ function vSettings(){
     '<div style="display:flex;flex-direction:column;gap:18px;min-width:0">'+
     '<section class="card"><div class="sh"><h2>Editing business</h2></div><div class="brow"><label for="taxpct">Tax set-aside, % of monthly profit</label><input class="ctl" id="taxpct" inputmode="decimal" value="'+(Number(cfg.taxPct)||0)+'"></div><p class="help">A rough reserve so tax money is not spent by mistake. Check the right figure with your CA.</p></section>'+
     '<section class="card"><div class="sh"><h2>Data and backup</h2></div><p class="help" style="margin-bottom:12px">'+where+'</p>'+
-      '<div class="actions"><button class="btn" data-act="csv">Download CSV</button><button class="btn" data-act="json">Backup (JSON)</button><button class="btn" data-act="import">Restore backup</button></div>'+
-      '<p class="help" style="margin-top:10px">CSV opens in Excel or Google Sheets. A backup restores every entry and setting.</p></section>'+
+      '<div class="actions"><button class="btn" data-act="csv">Download CSV</button><button class="btn" data-act="json">Backup (JSON)</button><button class="btn" data-act="import">Restore backup</button></div><div class="actions" style="margin-top:12px"><button class="btn pri" data-act="xlsx-import">Import from Excel</button><button class="btn" data-act="xlsx-export">Download as Excel</button></div>'+
+      '<p class="help" style="margin-top:10px">CSV opens in Excel or Google Sheets. A backup restores every entry and setting. Excel import reads the Personal and Editing sheets of your Hisab-Kitab.xlsx workbook, finding the columns by their headings. Importing the same file twice does not create duplicates. The example rows are skipped.</p></section>'+
     '<section class="card"><div class="sh"><h2>Start over</h2></div><p class="help" style="margin-bottom:12px">Deletes all your entries. Download a backup first if you may want them back.</p><button class="btn danger" data-act="wipe">'+(S.wipeAt&&Date.now()-S.wipeAt<5000?'Tap again to delete everything':'Delete all entries')+'</button></section>'+
     '</div></div>';
 }
@@ -642,6 +644,77 @@ async function importFile(file){
   toast('Restored '+ok+' entries');
 }
 
+/* ---------- excel import / export ---------- */
+function xDate(v){
+  if(typeof v==='number'&&v>20000&&v<80000){var d=new Date(Math.round((v-25569)*864e5));return d.getUTCFullYear()+'-'+pad(d.getUTCMonth()+1)+'-'+pad(d.getUTCDate());}
+  if(v instanceof Date&&!isNaN(v))return ymd(v);
+  var s=String(v==null?'':v).trim(),m;
+  if((m=/^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(s)))return m[1]+'-'+pad(+m[2])+'-'+pad(+m[3]);
+  if((m=/^(\d{1,2})[-\/. ](\d{1,2})[-\/. ](\d{4})$/.exec(s)))return m[3]+'-'+pad(+m[2])+'-'+pad(+m[1]);
+  if((m=/^(\d{1,2})[-\/. ]([A-Za-z]{3})[A-Za-z]*[-\/. ](\d{4})$/.exec(s))){var mi=MON.map(function(x){return x.toLowerCase();}).indexOf(m[2].toLowerCase());if(mi>=0)return m[3]+'-'+pad(mi+1)+'-'+pad(+m[1]);}
+  return '';
+}
+function hash(s){var h=5381;for(var i=0;i<s.length;i++)h=((h<<5)+h+s.charCodeAt(i))|0;return (h>>>0).toString(36);}
+async function importXlsx(file){
+  if(!window.XLSX){toast('The Excel reader did not load. Check your connection and reload the page.');return;}
+  var wb;try{wb=XLSX.read(await file.arrayBuffer(),{type:'array'});}catch(e){toast('Could not open that Excel file.');return;}
+  var defs=[['Personal','personal'],['Editing','business']];
+  var recs=[],seen={},skipped=0,found=0;
+  defs.forEach(function(d){
+    var ws=wb.Sheets[d[0]];if(!ws)return;found++;
+    var rows=XLSX.utils.sheet_to_json(ws,{header:1,raw:true,defval:''});
+    var hi=-1;
+    for(var h=0;h<Math.min(rows.length,15);h++){if(String(rows[h][0]).trim().toLowerCase()==='date'){hi=h;break;}}
+    if(hi<0)return;
+    var c={};
+    rows[hi].forEach(function(name,ix){
+      var n=String(name).trim().toLowerCase();
+      if(n==='date')c.date=ix;else if(n==='type')c.type=ix;else if(n==='category')c.cat=ix;
+      else if(/^(paid to|client)/.test(n))c.party=ix;else if(n==='paid via')c.mode=ix;
+      else if(n==='status')c.status=ix;else if(n.indexOf('amount')===0)c.amount=ix;else if(n==='note')c.note=ix;
+    });
+    if(c.date===undefined||c.type===undefined||c.amount===undefined)return;
+    for(var i=hi+1;i<rows.length;i++){
+      var r=rows[i],type=String(r[c.type]||'').trim().toLowerCase();
+      if(!type&&r[c.amount]===''&&r[c.date]==='')continue;
+      var note=String(r[c.note]||'').trim();
+      if(/^Example row/i.test(note))continue;
+      var amt=Number(String(r[c.amount]).replace(/[,₹\s]/g,'')),date=xDate(r[c.date]);
+      if((type!=='income'&&type!=='expense')||!isFinite(amt)||amt<=0||!date){skipped++;continue;}
+      var t={k:'tx',book:d[1],type:type,cat:String(r[c.cat]||'Other').trim().slice(0,60)||'Other',amount:Math.round(amt*100)/100,date:date,party:String(r[c.party]||'').trim().slice(0,80),note:note.slice(0,160),mode:String(r[c.mode]||'UPI').trim().slice(0,30)||'UPI',status:(c.status!==undefined&&String(r[c.status]).trim().toLowerCase()==='pending'&&d[1]==='business'&&type==='income')?'pending':'paid',createdAt:Date.now()};
+      var base=[t.book,t.date,t.type,t.cat,t.party,t.amount,t.note].join('|'),n=(seen[base]=(seen[base]||0)+1);
+      recs.push({id:'x'+hash(base)+'-'+n,obj:t});
+    }
+  });
+  if(!found){toast('No Personal or Editing sheet found in that file.');return;}
+  if(!recs.length){toast('No entries found. Fill rows from row 6 on the Personal or Editing sheet.');return;}
+  toast('Importing '+recs.length+' entries…');
+  if(isDemo()){S.cfg.demoOff=true;await store.cfg();}
+  for(var j=0;j<recs.length;j++){await store.put(recs[j].id,recs[j].obj);}
+  var last=recs.map(function(x){return x.obj.date;}).sort().pop().slice(0,7);
+  if(last<=curMonth())S.month=last;
+  render();
+  toast('Imported '+recs.length+' entries'+(skipped?'. '+skipped+' rows skipped (check Type, date and amount)':''));
+}
+async function exportXlsx(){
+  if(!window.XLSX){toast('The Excel writer did not load. Check your connection and reload the page.');return;}
+  if(!S.tx.length){toast('Nothing to export yet.');return;}
+  function ser(d){var p=d.split('-').map(Number);return Date.UTC(p[0],p[1]-1,p[2])/864e5+25569;}
+  function sheet(book,title,head,mk){
+    var L=S.tx.filter(function(t){return t.book===book;}).sort(function(a,b){return a.date.localeCompare(b.date);});
+    var aoa=[[title],[],[],[],head].concat(L.map(mk));
+    var ws=XLSX.utils.aoa_to_sheet(aoa);
+    for(var r=5;r<aoa.length;r++){var a=ws[XLSX.utils.encode_cell({r:r,c:0})];if(a){a.t='n';a.v=ser(L[r-5].date);a.z='dd-mmm-yyyy';}}
+    ws['!cols']=head.map(function(h){return {wch:Math.max(13,h.length+2)};});
+    return ws;
+  }
+  var wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,sheet('personal','Personal – income and expenses',['Date','Type','Category','Paid to / received from','Paid via','Amount (INR)','Note'],function(t){return [t.date,t.type==='income'?'Income':'Expense',t.cat,t.party,t.mode,t.amount,t.note];}),'Personal');
+  XLSX.utils.book_append_sheet(wb,sheet('business','Editing business – earnings and expenses',['Date','Type','Client / vendor','Category','Paid via','Status','Amount (INR)','Note'],function(t){return [t.date,t.type==='income'?'Income':'Expense',t.party,t.cat,t.mode,paid(t)?'Received':'Pending',t.amount,t.note];}),'Editing');
+  var buf=XLSX.write(wb,{type:'array',bookType:'xlsx'});
+  await saveFile('Hisab-Kitab-'+today()+'.xlsx',new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}));
+}
+
 /* ---------- actions ---------- */
 function readCat(){var c=$('#f-cat');if(c&&S.form)S.form.cat=c.value;}
 document.addEventListener('click',async function(e){
@@ -677,6 +750,8 @@ document.addEventListener('click',async function(e){
   if(a==='csv'){if(!S.tx.length){toast('Nothing to export yet.');return;}await saveFile('hisab-kitab-'+today()+'.csv',toCsv());return;}
   if(a==='json'){if(!S.tx.length&&!Object.keys(S.cfg.budgets||{}).length){toast('Nothing to back up yet.');return;}await saveFile('hisab-kitab-backup-'+today()+'.json',backupJson());return;}
   if(a==='import'){$('#imp').click();return;}
+  if(a==='xlsx-import'){$('#impx').click();return;}
+  if(a==='xlsx-export'){await exportXlsx();return;}
   if(a==='wipe'){
     if(S.wipeAt&&Date.now()-S.wipeAt<5000){
       S.wipeAt=0;var ids=S.tx.map(function(x){return x.id;});S.cfg.demoOff=true;
@@ -705,6 +780,7 @@ document.addEventListener('change',async function(e){
     S.cfg=Object.assign({},S.cfg,{taxPct:p});await store.cfg();toast('Saved');return;
   }
   if(t.id==='imp'){var file=t.files&&t.files[0];t.value='';if(file)await importFile(file);}
+  if(t.id==='impx'){var xf=t.files&&t.files[0];t.value='';if(xf)await importXlsx(xf);}
 });
 document.addEventListener('keydown',function(e){if(e.key==='Escape'&&S.form)closeForm();});
 var rt=null,lastW=0;
