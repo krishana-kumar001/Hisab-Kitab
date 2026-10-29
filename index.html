@@ -2,7 +2,7 @@
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@500;600;700&family=Hanken+Grotesk:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap">
+<script>(function(){var l=document.createElement('link');l.rel='stylesheet';l.href='https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@500;600;700&family=Hanken+Grotesk:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap';document.head.appendChild(l);})();</script>
 <style>
 /* Layout concept: a ledger desk. One figure strip on top of every book, a month-by-month trend,
    category rows with budget bars, and a plain dated entries list. Ink-blue accent on cool paper;
@@ -148,15 +148,49 @@ th.r,td.r{text-align:right}
 .foot{font-size:12.5px;color:var(--muted);text-align:center;padding-top:6px}
 @media(max-width:480px){.fig .v{font-size:24px}.card{padding:15px}.row{grid-template-columns:44px minmax(0,1fr) auto;gap:10px}.mlabel{min-width:100px}}
 @media(prefers-reduced-motion:no-preference){.tab,.btn,.row{transition:background .12s}}
+
+/* ---- polish: depth, loading skeleton, motion ---- */
+body{-webkit-tap-highlight-color:transparent}
+.card,.strip{box-shadow:0 1px 2px rgba(0,0,0,.06),0 10px 28px -14px rgba(0,0,0,.22)}
+.view{display:flex;flex-direction:column;gap:18px;min-width:0}
+.skel{display:flex;flex-direction:column;gap:18px}
+.sk{display:block;border-radius:12px;background:linear-gradient(90deg,var(--surface2) 25%,var(--surface) 50%,var(--surface2) 75%);background-size:200% 100%}
+.sk-h{height:44px;width:min(300px,70%)}.sk-t{height:46px}.sk-s{height:100px}.sk-c{height:240px}
+@keyframes shimmer{to{background-position:-200% 0}}
+@keyframes rise{from{opacity:0;transform:translateY(14px)}}
+@keyframes grow{from{transform:scaleX(0)}}
+@keyframes barUp{from{transform:scaleY(0)}}
+@keyframes fadeIn{from{opacity:0}}
+@keyframes sheetIn{from{opacity:0;transform:translateY(26px) scale(.98)}}
+@keyframes toastIn{from{opacity:0;transform:translate(-50%,10px)}}
+@keyframes fabIn{from{opacity:0;transform:translateY(16px) scale(.9)}}
+@media(prefers-reduced-motion:no-preference){
+  html{scroll-behavior:smooth}
+  .sk{animation:shimmer 1.4s linear infinite}
+  .btn,.tab,.row,.seg button,.fab,.card,.ctl{transition:background-color .18s cubic-bezier(.22,.8,.24,1),color .18s cubic-bezier(.22,.8,.24,1),border-color .18s cubic-bezier(.22,.8,.24,1),box-shadow .25s cubic-bezier(.22,.8,.24,1),transform .18s cubic-bezier(.22,.8,.24,1)}
+  .btn:hover{transform:translateY(-1px)}
+  .btn:active,.fab:active,.tab:active{transform:scale(.97)}
+  .fab:hover{transform:translateY(-2px);box-shadow:0 12px 26px rgba(0,0,0,.36)}
+  .card:hover{box-shadow:0 1px 2px rgba(0,0,0,.08),0 18px 38px -16px rgba(0,0,0,.32)}
+  .ctl:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-bg);outline:none}
+  .enter>*{animation:rise .6s cubic-bezier(.22,.8,.24,1) backwards}
+  .enter>*:nth-child(2){animation-delay:.06s}.enter>*:nth-child(3){animation-delay:.12s}.enter>*:nth-child(4){animation-delay:.18s}
+  .enter>*:nth-child(5){animation-delay:.24s}.enter>*:nth-child(6){animation-delay:.3s}.enter>*:nth-child(n+7){animation-delay:.36s}
+  .enter .bar i{transform-origin:left;animation:grow .9s cubic-bezier(.22,.8,.24,1) .25s backwards}
+  .enter .chart .b{transform-box:fill-box;transform-origin:50% 100%;animation:barUp .7s cubic-bezier(.22,.8,.24,1) .2s backwards}
+  .scrim{animation:fadeIn .2s ease-out}
+  .sheet{animation:sheetIn .34s cubic-bezier(.22,.8,.24,1)}
+  .toast{animation:toastIn .3s cubic-bezier(.22,.8,.24,1)}
+  .fab{animation:fabIn .5s cubic-bezier(.22,.8,.24,1) .35s backwards}
+}
 </style>
 
-<div class="wrap" id="app"></div>
+<div class="wrap" id="app"><div class="skel"><span class="sk sk-h"></span><span class="sk sk-t"></span><span class="sk sk-s"></span><span class="sk sk-c"></span></div></div>
 <button class="fab" id="fab" data-act="add" aria-label="Add entry">+ Add entry</button>
 <div id="modal" hidden></div>
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 <input type="file" id="imp" accept="application/json,.json" hidden>
 <input type="file" id="impx" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 
 <script>
 (function(){
@@ -279,23 +313,27 @@ var store={
     if(S.mode==='cloud'){return enqueue(function(){return col.doc(id).set(obj);});}
     var i=S.tx.findIndex(function(t){return t.id===id;});var rec=Object.assign({},obj,{id:id});
     if(i>=0)S.tx[i]=rec;else S.tx.push(rec);
-    lsSave();render();return Promise.resolve();
+    lsSave();renderSoon();return Promise.resolve();
   },
   del:function(id){
     if(S.mode==='cloud'){return enqueue(function(){return col.doc(id).delete();});}
-    S.tx=S.tx.filter(function(t){return t.id!==id;});lsSave();render();return Promise.resolve();
+    S.tx=S.tx.filter(function(t){return t.id!==id;});lsSave();renderSoon();return Promise.resolve();
   },
   cfg:function(){
     var obj=Object.assign({k:'cfg'},S.cfg);
     if(S.mode==='cloud'){return enqueue(function(){return col.doc('cfg').set(obj);});}
-    lsSave();render();return Promise.resolve();
+    lsSave();renderSoon();return Promise.resolve();
   }
 };
 function useLocal(msg){
+  if(S.cached){S.tx=[];S.cfg={budgets:{},taxPct:10,demoOff:false};}
+  S.cached=false;
   S.mode='local';S.persist=lsProbe();lsLoad();S.ready=true;render();
   if(msg)toast(msg);
 }
 async function boot(){
+  try{var cc=JSON.parse(localStorage.getItem(LS+'.cc')||'null');
+    if(cc&&Array.isArray(cc.tx)){S.tx=cc.tx;S.cfg=Object.assign({budgets:{},taxPct:10,demoOff:false},cc.cfg||{});S.ready=true;S.cached=true;S.cacheUid=cc.uid||null;}}catch(e){}
   render();
   var db=null,user=null;
   try{
@@ -308,9 +346,11 @@ async function boot(){
   var uid=null;
   try{if(user&&typeof user.id==='function')uid=await user.id();}catch(e){}
   if(db&&uid){
+    if(S.cached&&S.cacheUid!==uid){S.tx=[];S.cfg={budgets:{},taxPct:10,demoOff:false};S.ready=false;S.cached=false;render();}
     S.mode='cloud';col=db.collection('data/users/'+uid);
     var guard=setTimeout(function(){if(!S.ready){S.ready=true;render();}},5000);
     col.onSnapshot(function(snap){
+      if(S.cached&&snap.metadata.fromCache&&snap.size===0)return;
       var tx=[],cfg=null;
       snap.docs.forEach(function(d){
         var v=d.data();if(!v)return;
@@ -318,8 +358,8 @@ async function boot(){
       });
       S.tx=tx;
       if(cfg)S.cfg=Object.assign({budgets:{},taxPct:10,demoOff:false},cfg,{budgets:Object.assign({},cfg.budgets||{})});
-      if(!S.ready&&(!snap.metadata.fromCache||snap.size>0)){S.ready=true;clearTimeout(guard);}
-      render();
+      if(!snap.metadata.fromCache||snap.size>0){S.ready=true;S.cached=false;clearTimeout(guard);try{localStorage.setItem(LS+'.cc',JSON.stringify({uid:uid,tx:tx,cfg:S.cfg}));}catch(e){}}
+      renderSoon();
     },function(err){
       console.warn(err);useLocal('Cloud storage is not available right now. Using this browser instead.');
     });
@@ -338,12 +378,13 @@ function bookStats(book,key){
 function pendingAll(){return eff().filter(function(t){return !paid(t);}).sort(function(a,b){return a.date.localeCompare(b.date);});}
 function trendKeys(){var k=[];for(var i=5;i>=0;i--)k.push(addMonths(S.month,-i));return k;}
 
+var SKEL='<div class="skel"><span class="sk sk-h"></span><span class="sk sk-t"></span><span class="sk sk-s"></span><span class="sk sk-c"></span></div>';
 /* ---------- pieces ---------- */
 function fig(l,v,c,s){return '<div class="fig"><div class="l">'+l+'</div><div class="v '+(c||'')+'">'+v+'</div>'+(s?'<div class="s">'+s+'</div>':'')+'</div>';}
 function kv(l,v,c){return '<div class="kv"><span>'+l+'</span><b class="'+(c||'')+'">'+v+'</b></div>';}
 
-function chartHtml(keys,sets,sel){
-  var W=chartW,H=220,L=46,R=6,T=10,B=24,all=[];
+function chartHtml(keys,sets,sel,wide){
+  var W=wide?chartW:Math.min(chartW,500),H=wide?250:220,L=46,R=6,T=10,B=24,all=[];
   sets.forEach(function(s){all=all.concat(s.vals);});
   var hi=Math.max.apply(null,[0].concat(all)),lo=Math.min.apply(null,[0].concat(all));
   if(hi===0&&lo===0)hi=1000;
@@ -426,7 +467,7 @@ function vOverview(){
     fig('Personal spend',inr(P.exp),'out',totBud>0?Math.round(P.exp/totBud*100)+'% of '+inr(totBud)+' budget':'No budget set')+
     fig('Yet to receive',inr(ps),ps?'warn':'',pend.length?pend.length+' pending '+(pend.length===1?'payment':'payments'):'All payments received')+
     '</section>'+
-    '<section class="card"><div class="sh"><h2>Last 6 months</h2><span class="sub">Editing profit against personal spend</span></div>'+chartHtml(keys,[{name:'Editing profit',cls:'in',vals:profit},{name:'Personal spend',cls:'out',vals:spend}],k)+'</section>'+
+    '<section class="card"><div class="sh"><h2>Last 6 months</h2><span class="sub">Editing profit against personal spend</span></div>'+chartHtml(keys,[{name:'Editing profit',cls:'in',vals:profit},{name:'Personal spend',cls:'out',vals:spend}],k,true)+'</section>'+
     '<div class="grid2">'+
     '<section class="card"><div class="sh"><h2>Personal</h2><button class="btn sm" data-act="go" data-v="personal">Open</button></div>'+
       kv('Income',inr(P.inc),'in')+kv('Spent',inr(P.exp),'out')+kv('Left',inr(P.inc-P.exp),P.inc-P.exp<0?'out':'')+
@@ -513,7 +554,7 @@ function vSettings(){
 
 function header(){
   var cur=curMonth();
-  var st=S.mode==='cloud'?['ok','Saved to your account']:S.mode==='local'?(S.persist?['warn','Saved in this browser only']:['bad','Not saved. Download a backup']):['','Connecting…'];
+  var st=S.mode==='cloud'?['ok','Saved to your account']:S.mode==='local'?(S.persist?['warn','Saved in this browser only']:['bad','Not saved. Download a backup']):['',S.cached?'Syncing…':'Connecting…'];
   return '<header class="top"><div class="brand"><span class="mark" aria-hidden="true">₹</span><div><h1>Hisab Kitab</h1><p>Personal money and editing studio ledger</p></div></div>'+
     '<div class="monthnav"><button class="btn icon" data-act="mprev" aria-label="Previous month">‹</button><strong class="mlabel">'+mlong(S.month)+'</strong><button class="btn icon" data-act="mnext" aria-label="Next month"'+(S.month>=cur?' disabled':'')+'>›</button>'+(S.month!==cur?'<button class="btn sm" data-act="mnow">This month</button>':'')+'</div></header>'+
     '<div class="status"><span class="dot '+st[0]+'"></span>'+st[1]+'</div>';
@@ -528,13 +569,34 @@ function demoNote(){
 function render(){
   var app=$('#app');if(!app)return;
   var ae=document.activeElement,keep=ae&&ae.id==='q'?{s:ae.selectionStart,e:ae.selectionEnd}:null;
-  chartW=Math.max(280,Math.min(700,app.clientWidth-40));
-  var body;
-  if(!S.ready)body='<p class="loading">Opening your books…</p>';
-  else body=({overview:vOverview,personal:vPersonal,business:vBusiness,settings:vSettings})[S.view]();
-  app.innerHTML=header()+tabs()+(isDemo()&&S.view!=='settings'?demoNote():'')+body+
-    '<p class="foot">Amounts are in Indian rupees. Financial year runs April to March.</p>';
+  chartW=Math.max(280,Math.min(1040,app.clientWidth-40));
+  if(!S.ready){app.innerHTML=SKEL;return;}
+  if(!S._shown){S._shown=true;S.anim=true;}
+  var anim=S.anim;S.anim=false;
+  var body=({overview:vOverview,personal:vPersonal,business:vBusiness,settings:vSettings})[S.view]();
+  app.innerHTML=header()+tabs()+(isDemo()&&S.view!=='settings'?demoNote():'')+'<div class="view'+(anim?' enter':'')+'">'+body+
+    '<p class="foot">Amounts are in Indian rupees. Financial year runs April to March.</p></div>';
   if(keep){var el=$('#q');if(el){el.focus();try{el.setSelectionRange(keep.s,keep.e);}catch(e){}}}
+  if(anim)countUp();
+  if(S.view==='settings')loadXlsx();
+}
+var rq=0;
+function renderSoon(){if(rq)return;rq=requestAnimationFrame(function(){rq=0;render();});}
+function countUp(){
+  if(!window.matchMedia||matchMedia('(prefers-reduced-motion: reduce)').matches)return;
+  document.querySelectorAll('.fig .v').forEach(function(el){
+    var txt=el.textContent.trim();
+    if(txt.indexOf('₹')<0||txt.indexOf('%')>=0||/[A-Za-z]/.test(txt))return;
+    var neg=txt.charAt(0)==='−',end=parseFloat(txt.replace(/[^\d.]/g,''));
+    if(!isFinite(end)||end===0)return;
+    var t0=performance.now(),dur=800;
+    (function step(now){
+      var p=Math.min(1,(now-t0)/dur),e=1-Math.pow(1-p,3);
+      if(p>=1){el.textContent=txt;return;}
+      el.textContent=inr((neg?-1:1)*Math.round(end*e*100)/100);
+      requestAnimationFrame(step);
+    })(t0);
+  });
 }
 
 /* ---------- entry form ---------- */
@@ -645,6 +707,18 @@ async function importFile(file){
 }
 
 /* ---------- excel import / export ---------- */
+var xp=null;
+function loadXlsx(){
+  if(window.XLSX)return Promise.resolve(true);
+  if(!xp)xp=new Promise(function(res){
+    var sc=document.createElement('script');
+    sc.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+    sc.onload=function(){res(true);};
+    sc.onerror=function(){xp=null;res(false);};
+    document.head.appendChild(sc);
+  });
+  return xp;
+}
 function xDate(v){
   if(typeof v==='number'&&v>20000&&v<80000){var d=new Date(Math.round((v-25569)*864e5));return d.getUTCFullYear()+'-'+pad(d.getUTCMonth()+1)+'-'+pad(d.getUTCDate());}
   if(v instanceof Date&&!isNaN(v))return ymd(v);
@@ -656,7 +730,7 @@ function xDate(v){
 }
 function hash(s){var h=5381;for(var i=0;i<s.length;i++)h=((h<<5)+h+s.charCodeAt(i))|0;return (h>>>0).toString(36);}
 async function importXlsx(file){
-  if(!window.XLSX){toast('The Excel reader did not load. Check your connection and reload the page.');return;}
+  if(!(await loadXlsx())){toast('The Excel reader did not load. Check your connection and try again.');return;}
   var wb;try{wb=XLSX.read(await file.arrayBuffer(),{type:'array'});}catch(e){toast('Could not open that Excel file.');return;}
   var defs=[['Personal','personal'],['Editing','business']];
   var recs=[],seen={},skipped=0,found=0;
@@ -697,7 +771,7 @@ async function importXlsx(file){
   toast('Imported '+recs.length+' entries'+(skipped?'. '+skipped+' rows skipped (check Type, date and amount)':''));
 }
 async function exportXlsx(){
-  if(!window.XLSX){toast('The Excel writer did not load. Check your connection and reload the page.');return;}
+  if(!(await loadXlsx())){toast('The Excel writer did not load. Check your connection and try again.');return;}
   if(!S.tx.length){toast('Nothing to export yet.');return;}
   function ser(d){var p=d.split('-').map(Number);return Date.UTC(p[0],p[1]-1,p[2])/864e5+25569;}
   function sheet(book,title,head,mk){
@@ -720,11 +794,12 @@ function readCat(){var c=$('#f-cat');if(c&&S.form)S.form.cat=c.value;}
 document.addEventListener('click',async function(e){
   var el=e.target.closest('[data-act]');if(!el)return;
   var a=el.dataset.act,f=S.form;
+  if(S.mode==='pending'&&['add','edit','recv','cleardemo','wipe','import','xlsx-import'].indexOf(a)>=0){toast('Still connecting to your account. Try again in a moment.');return;}
   if(a==='fscrim'){if(e.target===el)closeForm();return;}
-  if(a==='go'){S.view=el.dataset.v;S.q='';S.ft='all';render();window.scrollTo(0,0);return;}
-  if(a==='mprev'){S.month=addMonths(S.month,-1);render();return;}
-  if(a==='mnext'){if(S.month<curMonth()){S.month=addMonths(S.month,1);render();}return;}
-  if(a==='mnow'){S.month=curMonth();render();return;}
+  if(a==='go'){S.view=el.dataset.v;S.q='';S.ft='all';S.anim=true;render();window.scrollTo(0,0);return;}
+  if(a==='mprev'){S.month=addMonths(S.month,-1);S.anim=true;render();return;}
+  if(a==='mnext'){if(S.month<curMonth()){S.month=addMonths(S.month,1);S.anim=true;render();}return;}
+  if(a==='mnow'){S.month=curMonth();S.anim=true;render();return;}
   if(a==='add'){openForm(null);return;}
   if(a==='edit'){
     var id=el.dataset.id;
