@@ -168,6 +168,40 @@ th.r,td.r{text-align:right}
 .sh .seg{min-width:190px}
 .monthnav[hidden]{display:none}
 
+/* ---- more motion: sliding tab pill, row entrances, ripples, count changes ---- */
+.tabs{position:relative}
+.tab{position:relative;z-index:1}
+.tab[aria-current="page"]{background:none;box-shadow:none;color:var(--fg)}
+.tabs .ind{position:absolute;top:4px;bottom:4px;left:0;width:0;background:var(--surface);border-radius:9px;box-shadow:0 1px 2px rgba(0,0,0,.14);z-index:0;pointer-events:none}
+.btn{position:relative}
+.btn,.tab,.fab{overflow:hidden}
+.rip{position:absolute;border-radius:50%;background:currentColor;opacity:.16;pointer-events:none;transform:scale(0)}
+@keyframes fadeOut{to{opacity:0}}
+@keyframes sheetOut{to{opacity:0;transform:translateY(18px) scale(.98)}}
+@keyframes rowin{from{opacity:0;transform:translateX(-10px)}}
+@keyframes drop{from{opacity:0;transform:translateY(-10px)}}
+@keyframes fresh{0%{opacity:0;transform:translateX(-14px);background:var(--accent-bg)}35%{opacity:1;transform:none;background:var(--accent-bg)}100%{background:transparent}}
+@keyframes bump{40%{transform:scale(1.07)}}
+@keyframes rip{to{transform:scale(1);opacity:0}}
+@media(prefers-reduced-motion:no-preference){
+  .tabs .ind{transition:transform .38s cubic-bezier(.22,.8,.24,1),width .38s cubic-bezier(.22,.8,.24,1)}
+  .scrim.out{animation:fadeOut .2s ease forwards}
+  .scrim.out .sheet{animation:sheetOut .2s ease forwards}
+  .boot>.top{animation:drop .6s cubic-bezier(.22,.8,.24,1) backwards}
+  .boot>.status{animation:drop .6s cubic-bezier(.22,.8,.24,1) .06s backwards}
+  .boot>.tabs{animation:drop .6s cubic-bezier(.22,.8,.24,1) .12s backwards}
+  .enter :is(.list>li,.cat,.ppl,.prow,.kv,tbody tr){animation:rowin .5s cubic-bezier(.22,.8,.24,1) backwards;animation-delay:calc(.2s + var(--i,0)*45ms)}
+  [data-fid].fresh{animation:fresh 1.1s ease-out}
+  .fig .v.bump{animation:bump .5s ease;transform-origin:left center}
+  .rip{animation:rip .6s ease-out forwards}
+  .mark{transition:transform .3s cubic-bezier(.22,.8,.24,1)}
+  .mark:hover{transform:rotate(-8deg) scale(1.08)}
+  .row .main,.row .d{transition:transform .22s cubic-bezier(.22,.8,.24,1)}
+  .row:hover .main{transform:translateX(4px)}
+  .chart .b{transition:filter .2s,opacity .2s}
+  .chart .b:hover{filter:brightness(1.15);opacity:1}
+}
+
 /* ---- polish: depth, loading skeleton, motion ---- */
 body{-webkit-tap-highlight-color:transparent}
 .card,.strip{box-shadow:0 1px 2px rgba(0,0,0,.06),0 10px 28px -14px rgba(0,0,0,.22)}
@@ -451,7 +485,7 @@ function catRows(map,budgets){
 function row(t,showBook){
   var pend=!paid(t),cls=pend?'pend':(t.type==='income'?'in':'out'),sign=t.type==='income'?'+':'−';
   var sub=[t.party,t.note,t.mode].filter(Boolean).join(' · ');
-  return '<li><button class="row" data-act="edit" data-id="'+esc(t.id)+'"><span class="d">'+dshort(t.date)+'</span><span class="main"><b>'+esc(t.cat)+(pend?'<span class="badge warn">Pending</span>':'')+(showBook?'<span class="badge">'+(t.book==='personal'?'Personal':'Editing')+'</span>':'')+'</b><small>'+esc(sub)+'</small></span><span class="amt '+cls+'">'+sign+inr(t.amount)+'</span></button></li>';
+  return '<li data-fid="'+esc(t.id)+'"><button class="row" data-act="edit" data-id="'+esc(t.id)+'"><span class="d">'+dshort(t.date)+'</span><span class="main"><b>'+esc(t.cat)+(pend?'<span class="badge warn">Pending</span>':'')+(showBook?'<span class="badge">'+(t.book==='personal'?'Personal':'Editing')+'</span>':'')+'</b><small>'+esc(sub)+'</small></span><span class="amt '+cls+'">'+sign+inr(t.amount)+'</span></button></li>';
 }
 function filtered(book){
   var L=eff().filter(function(t){return t.book===book&&t.date.slice(0,7)===S.month;});
@@ -580,7 +614,7 @@ function header(){
     '<div class="status"><span class="dot '+st[0]+'"></span>'+st[1]+'</div>';
 }
 function tabs(){
-  return '<nav class="tabs" aria-label="Sections">'+TABS.map(function(t){return '<button class="tab" data-act="go" data-v="'+t[0]+'"'+(S.view===t[0]?' aria-current="page"':'')+'>'+t[1]+'</button>';}).join('')+'</nav>';
+  return '<nav class="tabs" aria-label="Sections"><span class="ind" aria-hidden="true"></span>'+TABS.map(function(t){return '<button class="tab" data-act="go" data-v="'+t[0]+'"'+(S.view===t[0]?' aria-current="page"':'')+'>'+t[1]+'</button>';}).join('')+'</nav>';
 }
 function demoNote(){
   return '<div class="note"><span><b>These are sample entries</b> so you can see how it works. Add your first entry and they disappear.</span><button class="btn sm" data-act="cleardemo">Clear samples</button></div>';
@@ -591,16 +625,80 @@ function render(){
   var ae=document.activeElement,keep=ae&&ae.id==='q'?{s:ae.selectionStart,e:ae.selectionEnd}:null;
   chartW=Math.max(280,Math.min(1040,app.clientWidth-40));
   if(!S.ready){app.innerHTML=SKEL;return;}
-  if(!S._shown){S._shown=true;S.anim=true;}
+  var first=!S._shown;if(first){S._shown=true;S.anim=true;}
   var anim=S.anim;S.anim=false;
+  var prevFig=[].map.call(document.querySelectorAll('.fig .v'),function(e){return e.textContent;});
+  var prevIds={};[].forEach.call(document.querySelectorAll('[data-fid]'),function(e){prevIds[e.dataset.fid]=1;});
+  var vkey=S.view+'|'+S.month,sameView=S._key===vkey;S._key=vkey;
   var body=({overview:vOverview,personal:vPersonal,business:vBusiness,udhar:vUdhar,settings:vSettings})[S.view]();
   app.innerHTML=header()+tabs()+(isDemo()&&S.view!=='settings'?demoNote():'')+'<div class="view'+(anim?' enter':'')+'">'+body+
     '<p class="foot">Amounts are in Indian rupees. Financial year runs April to March.</p></div>';
   if(keep){var el=$('#q');if(el){el.focus();try{el.setSelectionRange(keep.s,keep.e);}catch(e){}}}
   var fb=$('#fab');if(fb){var fl=S.view==='udhar'?'+ Add udhar':'+ Add entry';fb.textContent=fl;fb.setAttribute('aria-label',fl.slice(2));}
+  fx(app,{first:first,anim:anim,prevFig:prevFig,prevIds:prevIds,sameView:sameView});
   if(anim)countUp();
   if(S.view==='settings')loadXlsx();
 }
+function reduced(){return !!(window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches);}
+function placeInd(animate){
+  var ind=$('.tabs .ind'),cur=$('.tab[aria-current="page"]');
+  if(!ind||!cur)return;
+  var x=cur.offsetLeft,w=cur.offsetWidth,prev=S._ind;
+  if(prev&&animate&&!reduced()){
+    ind.style.transition='none';ind.style.width=prev.w+'px';ind.style.transform='translateX('+prev.x+'px)';
+    void ind.offsetWidth;ind.style.transition='';
+  }
+  ind.style.width=w+'px';ind.style.transform='translateX('+x+'px)';
+  S._ind={x:x,w:w};
+}
+function pm(t){
+  t=String(t).trim();
+  var m=/^(−?)₹([\d,]+(?:\.\d+)?)$/.exec(t);
+  if(m)return {v:(m[1]?-1:1)*parseFloat(m[2].replace(/,/g,'')),money:true};
+  return /^\d+$/.test(t)?{v:Number(t),money:false}:null;
+}
+function tween(el,a,b,money,finalTxt){
+  var t0=performance.now(),dur=650;
+  el.classList.add('bump');setTimeout(function(){el.classList.remove('bump');},520);
+  (function step(now){
+    var p=Math.min(1,(now-t0)/dur),e=1-Math.pow(1-p,3);
+    if(p>=1){el.textContent=finalTxt;return;}
+    var v=Math.round(a+(b-a)*e);el.textContent=money?inr(v):String(v);
+    requestAnimationFrame(step);
+  })(t0);
+}
+function fx(app,o){
+  app.classList.toggle('boot',!!o.first);
+  placeInd(o.anim||o.first);
+  if(reduced())return;
+  if(o.anim){
+    [].forEach.call(app.querySelectorAll('.view.enter .chart .b'),function(el,i){el.style.animationDelay=(0.2+i*0.04)+'s';});
+    var cnt=new Map();
+    [].forEach.call(app.querySelectorAll('.view.enter .list>li,.view.enter .cat,.view.enter .ppl,.view.enter .prow,.view.enter .kv,.view.enter tbody tr'),function(el){
+      var p=el.parentNode,n=cnt.get(p)||0;cnt.set(p,n+1);el.style.setProperty('--i',Math.min(n,12));
+    });
+  }else if(o.sameView){
+    var fresh=[];
+    [].forEach.call(app.querySelectorAll('[data-fid]'),function(el){if(!o.prevIds[el.dataset.fid])fresh.push(el);});
+    if(fresh.length&&fresh.length<=3)fresh.forEach(function(el){el.classList.add('fresh');});
+    var figs=app.querySelectorAll('.fig .v');
+    if(figs.length===o.prevFig.length){
+      [].forEach.call(figs,function(el,i){
+        var a=pm(o.prevFig[i]),b=pm(el.textContent);
+        if(a&&b&&a.money===b.money&&a.v!==b.v)tween(el,a.v,b.v,b.money,el.textContent);
+      });
+    }
+  }
+}
+document.addEventListener('pointerdown',function(e){
+  if(reduced())return;
+  var b=e.target.closest&&e.target.closest('.btn,.tab,.fab');
+  if(!b||b.disabled)return;
+  var r=b.getBoundingClientRect(),d=Math.max(r.width,r.height)*2,s=document.createElement('span');
+  s.className='rip';s.style.width=s.style.height=d+'px';
+  s.style.left=(e.clientX-r.left-d/2)+'px';s.style.top=(e.clientY-r.top-d/2)+'px';
+  b.appendChild(s);s.addEventListener('animationend',function(){s.remove();});
+});
 var rq=0;
 function renderSoon(){if(rq)return;rq=requestAnimationFrame(function(){rq=0;render();});}
 function countUp(){
@@ -660,7 +758,7 @@ function loanRow(l){
     var key=l.id+':'+i,arm=S.pdKey===key&&Date.now()-S.pdAt<4000;
     return '<li><span>'+dshort(p.date)+' · '+inr(p.amount)+(p.note?' · '+esc(p.note):'')+'</span><button class="x" data-act="lpdel" data-id="'+esc(l.id)+'" data-i="'+i+'" aria-label="Remove this payment">'+(arm?'Remove?':'×')+'</button></li>';
   }).join('');
-  return '<li class="loan"><div class="lhead"><div class="lwho"><b>'+esc(l.person)+'</b><span class="badge '+(lent?'in':'out')+'">'+(lent?'You lent':'You borrowed')+'</span>'+(over?'<span class="badge warn">Overdue</span>':'')+(!left?'<span class="badge">Settled</span>':'')+'</div>'+
+  return '<li class="loan" data-fid="'+esc(l.id)+'"><div class="lhead"><div class="lwho"><b>'+esc(l.person)+'</b><span class="badge '+(lent?'in':'out')+'">'+(lent?'You lent':'You borrowed')+'</span>'+(over?'<span class="badge warn">Overdue</span>':'')+(!left?'<span class="badge">Settled</span>':'')+'</div>'+
     '<span class="amt '+(left?(lent?'in':'out'):'')+'">'+inr(left?left:l.amount)+'</span></div>'+
     '<div class="lmeta">'+esc(meta)+'</div>'+
     '<span class="bar"><i style="width:'+pct.toFixed(1)+'%"></i></span>'+
@@ -824,7 +922,11 @@ function syncForm(){
   $('#ftitle').textContent=f.isNew?'New entry':'Edit entry';
 }
 function closeForm(){
-  $('#modal').hidden=true;$('#modal').innerHTML='';S.form=null;S.lf=null;S.pf=null;
+  var m=$('#modal'),sc=m.querySelector('.scrim');
+  S.form=null;S.lf=null;S.pf=null;
+  if(!sc||m.hidden||reduced()){m.hidden=true;m.innerHTML='';return;}
+  sc.classList.add('out');
+  setTimeout(function(){var s2=m.querySelector('.scrim');if(s2&&s2.classList.contains('out')){m.hidden=true;m.innerHTML='';}},210);
 }
 async function saveForm(){
   var f=S.form;if(!f)return;
