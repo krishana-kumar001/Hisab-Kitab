@@ -149,6 +149,25 @@ th.r,td.r{text-align:right}
 @media(max-width:480px){.fig .v{font-size:24px}.card{padding:15px}.row{grid-template-columns:44px minmax(0,1fr) auto;gap:10px}.mlabel{min-width:100px}}
 @media(prefers-reduced-motion:no-preference){.tab,.btn,.row{transition:background .12s}}
 
+/* ---- udhar ---- */
+.badge.in{background:var(--in-bg);color:var(--in)}
+.badge.out{background:var(--out-bg);color:var(--out)}
+.loan{display:grid;gap:8px;padding:14px 0;border-top:1px solid var(--line)}
+.list li:first-child.loan{border-top:0;padding-top:4px}
+.lhead{display:flex;justify-content:space-between;align-items:baseline;gap:12px}
+.lwho{min-width:0;display:flex;flex-wrap:wrap;align-items:center;gap:4px 0}
+.lwho b{font-size:16px;font-weight:700;overflow-wrap:anywhere}
+.lmeta{font-size:12.5px;color:var(--muted);overflow-wrap:anywhere}
+.lact{display:flex;flex-wrap:wrap;gap:8px}
+.pays{list-style:none;margin:0;padding:0;display:grid;gap:2px;font-size:12.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+.pays li{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.pays .x{border:0;background:none;color:var(--muted);cursor:pointer;padding:2px 8px;border-radius:6px;font-size:13px}
+.pays .x:hover{color:var(--out);background:var(--surface2)}
+.ppl{display:flex;justify-content:space-between;gap:12px;padding:10px 0;border-top:1px solid var(--line);font-variant-numeric:tabular-nums}
+.ppl:first-of-type{border-top:0}
+.sh .seg{min-width:190px}
+.monthnav[hidden]{display:none}
+
 /* ---- polish: depth, loading skeleton, motion ---- */
 body{-webkit-tap-highlight-color:transparent}
 .card,.strip{box-shadow:0 1px 2px rgba(0,0,0,.06),0 10px 28px -14px rgba(0,0,0,.22)}
@@ -210,7 +229,7 @@ var CATS={
 var MODES=['UPI','Cash','Bank transfer','Card','Wallet'];
 var MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 var MONL=['January','February','March','April','May','June','July','August','September','October','November','December'];
-var TABS=[['overview','Overview'],['personal','Personal'],['business','Editing'],['settings','Settings']];
+var TABS=[['overview','Overview'],['personal','Personal'],['business','Editing'],['udhar','Udhar'],['settings','Settings']];
 var LS='hisabkitab.v1';
 
 /* ---------- helpers ---------- */
@@ -246,7 +265,7 @@ function byDate(a,b){return b.date.localeCompare(a.date)||(b.createdAt||0)-(a.cr
 function daysSince(d){return Math.max(0,Math.round((new Date(today())-new Date(d))/864e5));}
 
 /* ---------- state ---------- */
-var S={tx:[],cfg:{budgets:{},taxPct:10,demoOff:false},ready:false,mode:'pending',persist:true,
+var S={tx:[],loans:[],lflt:'open',cfg:{budgets:{},taxPct:10,demoOff:false},ready:false,mode:'pending',persist:true,
   view:'overview',month:curMonth(),q:'',ft:'all',form:null,wipeAt:0,delAt:0};
 var chartW=560;
 
@@ -302,22 +321,23 @@ function enqueue(fn){
   return q;
 }
 function lsLoad(){
-  try{var r=localStorage.getItem(LS);if(r){var o=JSON.parse(r);S.tx=(o.tx||[]);S.cfg=Object.assign({budgets:{},taxPct:10,demoOff:false},o.cfg||{});}}catch(e){}
+  try{var r=localStorage.getItem(LS);if(r){var o=JSON.parse(r);S.tx=(o.tx||[]);S.loans=(o.loans||[]);S.cfg=Object.assign({budgets:{},taxPct:10,demoOff:false},o.cfg||{});}}catch(e){}
 }
 function lsSave(){
-  try{localStorage.setItem(LS,JSON.stringify({tx:S.tx,cfg:S.cfg}));S.persist=true;}catch(e){S.persist=false;}
+  try{localStorage.setItem(LS,JSON.stringify({tx:S.tx,loans:S.loans,cfg:S.cfg}));S.persist=true;}catch(e){S.persist=false;}
 }
 function lsProbe(){try{localStorage.setItem(LS+'.p','1');localStorage.removeItem(LS+'.p');return true;}catch(e){return false;}}
 var store={
   put:function(id,obj){
     if(S.mode==='cloud'){return enqueue(function(){return col.doc(id).set(obj);});}
-    var i=S.tx.findIndex(function(t){return t.id===id;});var rec=Object.assign({},obj,{id:id});
-    if(i>=0)S.tx[i]=rec;else S.tx.push(rec);
+    var arr=obj.k==='loan'?S.loans:S.tx;
+    var i=arr.findIndex(function(t){return t.id===id;});var rec=Object.assign({},obj,{id:id});
+    if(i>=0)arr[i]=rec;else arr.push(rec);
     lsSave();renderSoon();return Promise.resolve();
   },
   del:function(id){
     if(S.mode==='cloud'){return enqueue(function(){return col.doc(id).delete();});}
-    S.tx=S.tx.filter(function(t){return t.id!==id;});lsSave();renderSoon();return Promise.resolve();
+    S.tx=S.tx.filter(function(t){return t.id!==id;});S.loans=S.loans.filter(function(t){return t.id!==id;});lsSave();renderSoon();return Promise.resolve();
   },
   cfg:function(){
     var obj=Object.assign({k:'cfg'},S.cfg);
@@ -326,14 +346,14 @@ var store={
   }
 };
 function useLocal(msg){
-  if(S.cached){S.tx=[];S.cfg={budgets:{},taxPct:10,demoOff:false};}
+  if(S.cached){S.tx=[];S.loans=[];S.cfg={budgets:{},taxPct:10,demoOff:false};}
   S.cached=false;
   S.mode='local';S.persist=lsProbe();lsLoad();S.ready=true;render();
   if(msg)toast(msg);
 }
 async function boot(){
   try{var cc=JSON.parse(localStorage.getItem(LS+'.cc')||'null');
-    if(cc&&Array.isArray(cc.tx)){S.tx=cc.tx;S.cfg=Object.assign({budgets:{},taxPct:10,demoOff:false},cc.cfg||{});S.ready=true;S.cached=true;S.cacheUid=cc.uid||null;}}catch(e){}
+    if(cc&&Array.isArray(cc.tx)){S.tx=cc.tx;S.loans=Array.isArray(cc.loans)?cc.loans:[];S.cfg=Object.assign({budgets:{},taxPct:10,demoOff:false},cc.cfg||{});S.ready=true;S.cached=true;S.cacheUid=cc.uid||null;}}catch(e){}
   render();
   var db=null,user=null;
   try{
@@ -346,19 +366,19 @@ async function boot(){
   var uid=null;
   try{if(user&&typeof user.id==='function')uid=await user.id();}catch(e){}
   if(db&&uid){
-    if(S.cached&&S.cacheUid!==uid){S.tx=[];S.cfg={budgets:{},taxPct:10,demoOff:false};S.ready=false;S.cached=false;render();}
+    if(S.cached&&S.cacheUid!==uid){S.tx=[];S.loans=[];S.cfg={budgets:{},taxPct:10,demoOff:false};S.ready=false;S.cached=false;render();}
     S.mode='cloud';col=db.collection('data/users/'+uid);
     var guard=setTimeout(function(){if(!S.ready){S.ready=true;render();}},5000);
     col.onSnapshot(function(snap){
       if(S.cached&&snap.metadata.fromCache&&snap.size===0)return;
-      var tx=[],cfg=null;
+      var tx=[],loans=[],cfg=null;
       snap.docs.forEach(function(d){
         var v=d.data();if(!v)return;
-        if(d.id==='cfg')cfg=v;else if(v.k==='tx')tx.push(Object.assign({},v,{id:d.id}));
+        if(d.id==='cfg')cfg=v;else if(v.k==='tx')tx.push(Object.assign({},v,{id:d.id}));else if(v.k==='loan')loans.push(Object.assign({},v,{id:d.id}));
       });
-      S.tx=tx;
+      S.tx=tx;S.loans=loans;
       if(cfg)S.cfg=Object.assign({budgets:{},taxPct:10,demoOff:false},cfg,{budgets:Object.assign({},cfg.budgets||{})});
-      if(!snap.metadata.fromCache||snap.size>0){S.ready=true;S.cached=false;clearTimeout(guard);try{localStorage.setItem(LS+'.cc',JSON.stringify({uid:uid,tx:tx,cfg:S.cfg}));}catch(e){}}
+      if(!snap.metadata.fromCache||snap.size>0){S.ready=true;S.cached=false;clearTimeout(guard);try{localStorage.setItem(LS+'.cc',JSON.stringify({uid:uid,tx:tx,loans:loans,cfg:S.cfg}));}catch(e){}}
       renderSoon();
     },function(err){
       console.warn(err);useLocal('Cloud storage is not available right now. Using this browser instead.');
@@ -475,7 +495,7 @@ function vOverview(){
     '<section class="card"><div class="sh"><h2>Editing business</h2><button class="btn sm" data-act="go" data-v="business">Open</button></div>'+
       kv('Earned',inr(B.inc),'in')+kv('Expenses',inr(B.exp),'out')+kv('Profit',inr(B.net),B.net<0?'out':'in')+kv('Yet to receive',inr(ps),ps?'warn':'')+'</section>'+
     '</div>'+
-    '<section class="card"><div class="sh"><h2>Recent entries</h2><span class="sub">Latest across both books</span></div>'+
+    udharCard()+'<section class="card"><div class="sh"><h2>Recent entries</h2><span class="sub">Latest across both books</span></div>'+
       (recent.length?'<ul class="list">'+recent.map(function(t){return row(t,true);}).join('')+'</ul>':'<p class="empty">No entries yet.</p>')+'</section>';
 }
 
@@ -556,7 +576,7 @@ function header(){
   var cur=curMonth();
   var st=S.mode==='cloud'?['ok','Saved to your account']:S.mode==='local'?(S.persist?['warn','Saved in this browser only']:['bad','Not saved. Download a backup']):['',S.cached?'Syncing…':'Connecting…'];
   return '<header class="top"><div class="brand"><span class="mark" aria-hidden="true">₹</span><div><h1>Hisab Kitab</h1><p>Personal money and editing studio ledger</p></div></div>'+
-    '<div class="monthnav"><button class="btn icon" data-act="mprev" aria-label="Previous month">‹</button><strong class="mlabel">'+mlong(S.month)+'</strong><button class="btn icon" data-act="mnext" aria-label="Next month"'+(S.month>=cur?' disabled':'')+'>›</button>'+(S.month!==cur?'<button class="btn sm" data-act="mnow">This month</button>':'')+'</div></header>'+
+    '<div class="monthnav"'+(S.view==='udhar'?' hidden':'')+'><button class="btn icon" data-act="mprev" aria-label="Previous month">‹</button><strong class="mlabel">'+mlong(S.month)+'</strong><button class="btn icon" data-act="mnext" aria-label="Next month"'+(S.month>=cur?' disabled':'')+'>›</button>'+(S.month!==cur?'<button class="btn sm" data-act="mnow">This month</button>':'')+'</div></header>'+
     '<div class="status"><span class="dot '+st[0]+'"></span>'+st[1]+'</div>';
 }
 function tabs(){
@@ -573,10 +593,11 @@ function render(){
   if(!S.ready){app.innerHTML=SKEL;return;}
   if(!S._shown){S._shown=true;S.anim=true;}
   var anim=S.anim;S.anim=false;
-  var body=({overview:vOverview,personal:vPersonal,business:vBusiness,settings:vSettings})[S.view]();
+  var body=({overview:vOverview,personal:vPersonal,business:vBusiness,udhar:vUdhar,settings:vSettings})[S.view]();
   app.innerHTML=header()+tabs()+(isDemo()&&S.view!=='settings'?demoNote():'')+'<div class="view'+(anim?' enter':'')+'">'+body+
     '<p class="foot">Amounts are in Indian rupees. Financial year runs April to March.</p></div>';
   if(keep){var el=$('#q');if(el){el.focus();try{el.setSelectionRange(keep.s,keep.e);}catch(e){}}}
+  var fb=$('#fab');if(fb){var fl=S.view==='udhar'?'+ Add udhar':'+ Add entry';fb.textContent=fl;fb.setAttribute('aria-label',fl.slice(2));}
   if(anim)countUp();
   if(S.view==='settings')loadXlsx();
 }
@@ -593,10 +614,169 @@ function countUp(){
     (function step(now){
       var p=Math.min(1,(now-t0)/dur),e=1-Math.pow(1-p,3);
       if(p>=1){el.textContent=txt;return;}
-      el.textContent=inr((neg?-1:1)*Math.round(end*e*100)/100);
+      el.textContent=inr((neg?-1:1)*(end%1===0?Math.round(end*e):Math.round(end*e*100)/100));
       requestAnimationFrame(step);
     })(t0);
   });
+}
+
+/* ---------- udhar (money lent and borrowed) ---------- */
+var _dl=null;
+function demoLoans(){
+  if(_dl)return _dl;
+  function off(n){var d=new Date();d.setDate(d.getDate()+n);return ymd(d);}
+  _dl=[
+    {id:'demo-l1',k:'loan',dir:'lent',person:'Rohit',amount:5000,date:off(-40),due:off(-5),note:'Sample entry',pays:[{date:off(-20),amount:2000,note:'UPI'}]},
+    {id:'demo-l2',k:'loan',dir:'borrowed',person:'Papa',amount:15000,date:off(-25),due:off(30),note:'Sample entry',pays:[]},
+    {id:'demo-l3',k:'loan',dir:'lent',person:'Aman',amount:1500,date:off(-60),due:'',note:'Sample entry',pays:[{date:off(-30),amount:1500,note:'Settled'}]}
+  ];
+  return _dl;
+}
+function effLoans(){return isDemo()?demoLoans():S.loans;}
+function paidOf(l){return (l.pays||[]).reduce(function(a,p){return a+p.amount;},0);}
+function leftOf(l){return Math.max(0,Math.round((l.amount-paidOf(l))*100)/100);}
+function findLoan(id){return S.loans.find(function(x){return x.id===id;});}
+function loanStats(){
+  var s={get:0,owe:0,over:0,open:0},t=today();
+  effLoans().forEach(function(l){
+    var r=leftOf(l);if(!r)return;
+    s.open++;if(l.dir==='lent')s.get+=r;else s.owe+=r;
+    if(l.due&&l.due<t)s.over++;
+  });
+  return s;
+}
+function udharCard(){
+  var s=loanStats(),net=s.get-s.owe;
+  return '<section class="card"><div class="sh"><h2>Udhar</h2><button class="btn sm" data-act="go" data-v="udhar">Open</button></div>'+
+    kv('You will get',inr(s.get),s.get?'in':'')+kv('You owe',inr(s.owe),s.owe?'out':'')+kv('Net',inr(net),net<0?'out':'')+
+    (s.over?kv('Overdue',s.over+(s.over===1?' loan':' loans'),'warn'):'')+'</section>';
+}
+function loanRow(l){
+  var left=leftOf(l),paidAmt=paidOf(l),lent=l.dir==='lent',t=today();
+  var over=left>0&&l.due&&l.due<t;
+  var pct=l.amount>0?Math.min(100,paidAmt/l.amount*100):0;
+  var meta=(lent?'Given ':'Taken ')+dshort(l.date)+(l.due?' · due '+dshort(l.due):'')+' · '+inr(paidAmt)+' of '+inr(l.amount)+(lent?' received':' repaid')+(l.note?' · '+l.note:'');
+  var pays=(l.pays||[]).map(function(p,i){
+    var key=l.id+':'+i,arm=S.pdKey===key&&Date.now()-S.pdAt<4000;
+    return '<li><span>'+dshort(p.date)+' · '+inr(p.amount)+(p.note?' · '+esc(p.note):'')+'</span><button class="x" data-act="lpdel" data-id="'+esc(l.id)+'" data-i="'+i+'" aria-label="Remove this payment">'+(arm?'Remove?':'×')+'</button></li>';
+  }).join('');
+  return '<li class="loan"><div class="lhead"><div class="lwho"><b>'+esc(l.person)+'</b><span class="badge '+(lent?'in':'out')+'">'+(lent?'You lent':'You borrowed')+'</span>'+(over?'<span class="badge warn">Overdue</span>':'')+(!left?'<span class="badge">Settled</span>':'')+'</div>'+
+    '<span class="amt '+(left?(lent?'in':'out'):'')+'">'+inr(left?left:l.amount)+'</span></div>'+
+    '<div class="lmeta">'+esc(meta)+'</div>'+
+    '<span class="bar"><i style="width:'+pct.toFixed(1)+'%"></i></span>'+
+    (pays?'<ul class="pays">'+pays+'</ul>':'')+
+    '<div class="lact">'+(left?'<button class="btn sm pri" data-act="lpay" data-id="'+esc(l.id)+'">'+(lent?'Record repayment':'Record payment')+'</button><button class="btn sm" data-act="lsettle" data-id="'+esc(l.id)+'">Settle in full</button>':'')+'<button class="btn sm" data-act="ledit" data-id="'+esc(l.id)+'">Edit</button></div></li>';
+}
+function vUdhar(){
+  var s=loanStats(),all=effLoans().slice(),flt=S.lflt,net=s.get-s.owe;
+  var list=all.filter(function(l){var o=leftOf(l)>0;return flt==='all'||(flt==='open'?o:!o);});
+  list.sort(function(a,b){
+    var oa=leftOf(a)>0,ob=leftOf(b)>0;if(oa!==ob)return oa?-1:1;
+    if(oa){var x=a.due||'9999',y=b.due||'9999';if(x!==y)return x<y?-1:1;}
+    return b.date.localeCompare(a.date);
+  });
+  var ppl={};
+  all.forEach(function(l){
+    var r=leftOf(l);if(!r)return;
+    var k=l.person.trim().toLowerCase(),o=ppl[k]||(ppl[k]={name:l.person.trim(),net:0});
+    o.net+=(l.dir==='lent'?r:-r);
+  });
+  var pl=Object.keys(ppl).map(function(k){return ppl[k];}).filter(function(p){return Math.abs(p.net)>=0.005;}).sort(function(a,b){return Math.abs(b.net)-Math.abs(a.net);});
+  var pplHtml=pl.length?pl.map(function(p){
+    return '<div class="ppl"><span>'+(p.net>0?esc(p.name)+' owes you':'You owe '+esc(p.name))+'</span><b class="'+(p.net>0?'in':'out')+'">'+inr(Math.abs(p.net))+'</b></div>';
+  }).join(''):'<p class="empty">Nobody owes you and you owe nobody.</p>';
+  var seg=[['open','Open'],['settled','Settled'],['all','All']].map(function(o){return '<button type="button" data-act="lflt" data-val="'+o[0]+'" aria-pressed="'+(flt===o[0])+'">'+o[1]+'</button>';}).join('');
+  var empty=flt==='open'?'No open udhar. Tap <b>+ Add udhar</b> to record money you lent or borrowed.':flt==='settled'?'No settled udhar yet. Cleared loans appear here.':'Nothing recorded yet. Tap <b>+ Add udhar</b> to start.';
+  return '<section class="strip">'+
+    fig('You will get',inr(s.get),s.get?'in':'','Money you lent, still pending')+
+    fig('You owe',inr(s.owe),s.owe?'out':'','Money you borrowed, still to return')+
+    fig('Net',inr(net),net<0?'out':'',net<0?'You owe more than you are owed':'Owed to you minus what you owe')+
+    fig('Overdue',String(s.over),s.over?'warn':'',s.over?(s.over===1?'loan':'loans')+' past the return date':'Nothing overdue')+
+    '</section>'+
+    '<div class="grid2">'+
+    '<section class="card"><div class="sh"><h2>Person-wise</h2><span class="sub">Open balances</span></div>'+pplHtml+'</section>'+
+    '<section class="card"><div class="sh"><h2>Udhar book</h2><div class="seg" role="group" aria-label="Show">'+seg+'</div></div>'+
+      (list.length?'<ul class="list">'+list.map(loanRow).join('')+'</ul>':'<p class="empty">'+empty+'</p>')+'</section>'+
+    '</div>';
+}
+function openLoanForm(l){
+  var f=l?JSON.parse(JSON.stringify(l)):{k:'loan',dir:'lent',person:'',amount:'',date:today(),due:'',note:'',pays:[]};
+  f.isNew=!l;S.lf=f;S.pf=null;S.form=null;
+  $('#modal').innerHTML=
+  '<div class="scrim" data-act="fscrim"><form class="sheet" id="lf" role="dialog" aria-modal="true" aria-labelledby="lftitle" novalidate>'+
+  '<div class="sh"><h2 id="lftitle">'+(f.isNew?'New udhar':'Edit udhar')+'</h2><button type="button" class="btn icon" data-act="fclose" aria-label="Close">×</button></div>'+
+  '<div class="fld"><span class="lab">What happened</span><div class="seg" id="seg-dir"><button type="button" class="inc" data-act="ldir" data-val="lent">I lent (udhar diya)</button><button type="button" class="exp" data-act="ldir" data-val="borrowed">I borrowed (udhar liya)</button></div></div>'+
+  '<div class="fld"><label for="l-person" id="l-plab">Lent to</label><input class="ctl" id="l-person" list="lpeople" autocomplete="off" maxlength="80"><datalist id="lpeople"></datalist></div>'+
+  '<div class="fld"><label for="l-amount">Amount (₹)</label><input class="ctl big" id="l-amount" inputmode="decimal" autocomplete="off" placeholder="0"></div>'+
+  '<div class="two"><div class="fld"><label for="l-date">Date</label><input class="ctl" id="l-date" type="date"></div><div class="fld"><label for="l-due">Return by (optional)</label><input class="ctl" id="l-due" type="date"></div></div>'+
+  '<div class="fld"><label for="l-note">Note</label><input class="ctl" id="l-note" autocomplete="off" maxlength="160" placeholder="Optional"></div>'+
+  '<p class="err" id="l-err" role="alert"></p>'+
+  '<div class="actions">'+(f.isNew?'':'<button type="button" class="btn danger" data-act="ldel">Delete</button>')+'<span style="flex:1"></span><button type="button" class="btn" data-act="fclose">Cancel</button><button type="submit" class="btn pri">Save</button></div>'+
+  '</form></div>';
+  $('#modal').hidden=false;
+  $('#l-person').value=f.person||'';$('#l-amount').value=f.amount===''?'':String(f.amount);
+  $('#l-date').value=f.date;$('#l-due').value=f.due||'';$('#l-note').value=f.note||'';
+  syncLoanForm();
+  setTimeout(function(){var a=$('#l-person');if(a)a.focus();},30);
+}
+function syncLoanForm(){
+  var f=S.lf,m=$('#modal');if(!f)return;
+  m.querySelectorAll('#seg-dir button').forEach(function(b){b.setAttribute('aria-pressed',String(b.dataset.val===f.dir));});
+  $('#l-plab').textContent=f.dir==='lent'?'Lent to':'Borrowed from';
+  var seen={};effLoans().forEach(function(l){if(l.person)seen[l.person]=1;});
+  $('#lpeople').innerHTML=Object.keys(seen).slice(0,40).map(function(p){return '<option value="'+esc(p)+'"></option>';}).join('');
+}
+async function saveLoan(){
+  var f=S.lf;if(!f)return;
+  var amt=Number(String($('#l-amount').value).replace(/[,₹\s]/g,'')),person=$('#l-person').value.trim(),date=$('#l-date').value,due=$('#l-due').value,err=$('#l-err');
+  if(!person){err.textContent='Enter the person’s name.';$('#l-person').focus();return;}
+  if(!isFinite(amt)||amt<=0){err.textContent='Enter an amount greater than zero.';$('#l-amount').focus();return;}
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(date)){err.textContent='Pick a date.';$('#l-date').focus();return;}
+  if(due&&due<date){err.textContent='The return date cannot be before the date of the udhar.';$('#l-due').focus();return;}
+  var pd=paidOf(f);
+  if(amt<pd-0.005){err.textContent='The amount cannot be less than the '+inr(pd)+' already repaid.';$('#l-amount').focus();return;}
+  var obj={k:'loan',dir:f.dir,person:person.slice(0,80),amount:Math.round(amt*100)/100,date:date,due:due||'',note:$('#l-note').value.trim().slice(0,160),pays:f.pays||[],createdAt:f.createdAt||Date.now()};
+  var id=f.id||newId();
+  if(isDemo()){S.cfg.demoOff=true;await store.cfg();}
+  closeForm();
+  await store.put(id,obj);
+  toast(f.isNew?'Udhar added':'Udhar updated');
+}
+function openPayForm(l){
+  var left=leftOf(l),lent=l.dir==='lent';
+  S.pf={id:l.id};S.lf=null;S.form=null;
+  $('#modal').innerHTML=
+  '<div class="scrim" data-act="fscrim"><form class="sheet" id="pf" role="dialog" aria-modal="true" aria-labelledby="pftitle" novalidate>'+
+  '<div class="sh"><h2 id="pftitle">'+(lent?'Repayment from ':'Payment to ')+esc(l.person)+'</h2><button type="button" class="btn icon" data-act="fclose" aria-label="Close">×</button></div>'+
+  '<p class="help" style="margin-bottom:12px">Still left to '+(lent?'receive':'pay')+': <b>'+inr(left)+'</b></p>'+
+  '<div class="fld"><label for="p-amount">Amount (₹)</label><input class="ctl big" id="p-amount" inputmode="decimal" autocomplete="off"></div>'+
+  '<div class="two"><div class="fld"><label for="p-date">Date</label><input class="ctl" id="p-date" type="date"></div><div class="fld"><label for="p-note">Note</label><input class="ctl" id="p-note" autocomplete="off" maxlength="80" placeholder="Optional"></div></div>'+
+  '<p class="err" id="p-err" role="alert"></p>'+
+  '<div class="actions"><span style="flex:1"></span><button type="button" class="btn" data-act="fclose">Cancel</button><button type="submit" class="btn pri">Save</button></div>'+
+  '</form></div>';
+  $('#modal').hidden=false;
+  $('#p-amount').value=String(left);$('#p-date').value=today();
+  setTimeout(function(){var a=$('#p-amount');if(a){a.focus();a.select();}},30);
+}
+async function savePay(){
+  var p=S.pf;if(!p)return;
+  var l=findLoan(p.id);if(!l){closeForm();return;}
+  var amt=Number(String($('#p-amount').value).replace(/[,₹\s]/g,'')),date=$('#p-date').value,err=$('#p-err'),left=leftOf(l);
+  if(!isFinite(amt)||amt<=0){err.textContent='Enter an amount greater than zero.';$('#p-amount').focus();return;}
+  if(amt>left+0.005){err.textContent='That is more than the '+inr(left)+' still left.';$('#p-amount').focus();return;}
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(date)){err.textContent='Pick a date.';$('#p-date').focus();return;}
+  var o=Object.assign({},l);delete o.id;
+  o.pays=(l.pays||[]).concat({date:date,amount:Math.round(amt*100)/100,note:$('#p-note').value.trim().slice(0,80)});
+  closeForm();
+  await store.put(l.id,o);
+  toast(Math.round((left-amt)*100)/100<=0?'Settled in full':'Payment recorded');
+}
+async function settleLoan(l){
+  var left=leftOf(l);if(!left)return;
+  var o=Object.assign({},l);delete o.id;
+  o.pays=(l.pays||[]).concat({date:today(),amount:left,note:'Settled'});
+  await store.put(l.id,o);
+  toast('Marked as settled');
 }
 
 /* ---------- entry form ---------- */
@@ -644,7 +824,7 @@ function syncForm(){
   $('#ftitle').textContent=f.isNew?'New entry':'Edit entry';
 }
 function closeForm(){
-  $('#modal').hidden=true;$('#modal').innerHTML='';S.form=null;
+  $('#modal').hidden=true;$('#modal').innerHTML='';S.form=null;S.lf=null;S.pf=null;
 }
 async function saveForm(){
   var f=S.form;if(!f)return;
@@ -681,7 +861,7 @@ async function saveFile(name,data){
   catch(e){toast('Could not save the file from this view.');}
 }
 function backupJson(){
-  return JSON.stringify({app:'hisab-kitab',v:1,exported:new Date().toISOString(),cfg:S.cfg,tx:S.tx},null,1);
+  return JSON.stringify({app:'hisab-kitab',v:1,exported:new Date().toISOString(),cfg:S.cfg,tx:S.tx,loans:S.loans},null,1);
 }
 async function importFile(file){
   var text;try{text=await file.text();}catch(e){toast('Could not read that file.');return;}
@@ -698,12 +878,25 @@ async function importFile(file){
     await store.put(id,{k:'tx',book:t.book,type:t.type,cat:String(t.cat||'Other').slice(0,60),amount:amt,date:t.date,party:String(t.party||'').slice(0,80),note:String(t.note||'').slice(0,160),mode:String(t.mode||'UPI').slice(0,30),status:t.status==='pending'?'pending':'paid',createdAt:Number(t.createdAt)||Date.now()});
     ok++;
   }
+  var lc=0,dateRe=/^\d{4}-\d{2}-\d{2}$/;
+  if(Array.isArray(o.loans)){
+    for(var j=0;j<o.loans.length&&j<2000;j++){
+      var l=o.loans[j];
+      if(!l||(l.dir!=='lent'&&l.dir!=='borrowed'))continue;
+      var la=Number(l.amount);
+      if(!isFinite(la)||la<=0||!dateRe.test(String(l.date))||!String(l.person||'').trim())continue;
+      var pays=(Array.isArray(l.pays)?l.pays:[]).map(function(p){return {date:String(p&&p.date||''),amount:Number(p&&p.amount),note:String(p&&p.note||'').slice(0,80)};}).filter(function(p){return dateRe.test(p.date)&&isFinite(p.amount)&&p.amount>0;}).slice(0,200);
+      var lid=(typeof l.id==='string'&&idRe.test(l.id)&&l.id.indexOf('demo-')!==0)?l.id:newId();
+      await store.put(lid,{k:'loan',dir:l.dir,person:String(l.person).trim().slice(0,80),amount:la,date:l.date,due:dateRe.test(String(l.due||''))?l.due:'',note:String(l.note||'').slice(0,160),pays:pays,createdAt:Number(l.createdAt)||Date.now()});
+      lc++;
+    }
+  }
   if(o.cfg&&typeof o.cfg==='object'){
     var b={};if(o.cfg.budgets&&typeof o.cfg.budgets==='object')Object.keys(o.cfg.budgets).forEach(function(c){var v=Number(o.cfg.budgets[c]);if(v>0)b[String(c).slice(0,60)]=v;});
     S.cfg=Object.assign({},S.cfg,{budgets:b,taxPct:Number(o.cfg.taxPct)||S.cfg.taxPct,demoOff:true});
   }else{S.cfg.demoOff=true;}
   await store.cfg();
-  toast('Restored '+ok+' entries');
+  toast('Restored '+ok+' entries'+(lc?' and '+lc+' udhar records':''));
 }
 
 /* ---------- excel import / export ---------- */
@@ -794,13 +987,40 @@ function readCat(){var c=$('#f-cat');if(c&&S.form)S.form.cat=c.value;}
 document.addEventListener('click',async function(e){
   var el=e.target.closest('[data-act]');if(!el)return;
   var a=el.dataset.act,f=S.form;
-  if(S.mode==='pending'&&['add','edit','recv','cleardemo','wipe','import','xlsx-import'].indexOf(a)>=0){toast('Still connecting to your account. Try again in a moment.');return;}
+  if(S.mode==='pending'&&['add','edit','recv','cleardemo','wipe','import','xlsx-import','ledit','lpay','lsettle','lpdel'].indexOf(a)>=0){toast('Still connecting to your account. Try again in a moment.');return;}
   if(a==='fscrim'){if(e.target===el)closeForm();return;}
   if(a==='go'){S.view=el.dataset.v;S.q='';S.ft='all';S.anim=true;render();window.scrollTo(0,0);return;}
   if(a==='mprev'){S.month=addMonths(S.month,-1);S.anim=true;render();return;}
   if(a==='mnext'){if(S.month<curMonth()){S.month=addMonths(S.month,1);S.anim=true;render();}return;}
   if(a==='mnow'){S.month=curMonth();S.anim=true;render();return;}
-  if(a==='add'){openForm(null);return;}
+  if(a==='add'){if(S.view==='udhar')openLoanForm(null);else openForm(null);return;}
+  if(a==='lflt'){S.lflt=el.dataset.val;render();return;}
+  if(a==='ldir'&&S.lf){S.lf.dir=el.dataset.val;syncLoanForm();return;}
+  if(a==='ledit'||a==='lpay'||a==='lsettle'){
+    if(isDemo()){toast('That is a sample entry. Clear the samples to start with your own.');return;}
+    var ln=findLoan(el.dataset.id);if(!ln)return;
+    if(a==='ledit')openLoanForm(ln);else if(a==='lpay')openPayForm(ln);else await settleLoan(ln);
+    return;
+  }
+  if(a==='lpdel'){
+    if(isDemo()){toast('That is a sample entry. Clear the samples to start with your own.');return;}
+    var lo=findLoan(el.dataset.id);if(!lo)return;
+    var pi=Number(el.dataset.i),pkey=lo.id+':'+pi;
+    if(S.pdKey===pkey&&Date.now()-S.pdAt<4000){
+      S.pdKey=null;var o2=Object.assign({},lo);delete o2.id;
+      o2.pays=(lo.pays||[]).filter(function(p,ix){return ix!==pi;});
+      await store.put(lo.id,o2);toast('Payment removed');
+    }else{
+      S.pdKey=pkey;S.pdAt=Date.now();render();
+      setTimeout(function(){if(S.pdKey===pkey&&Date.now()-S.pdAt>=4000){S.pdKey=null;if(S.view==='udhar')render();}},4200);
+    }
+    return;
+  }
+  if(a==='ldel'&&S.lf){
+    if(S.delAt&&Date.now()-S.delAt<4000){var lid=S.lf.id;closeForm();S.delAt=0;await store.del(lid);toast('Udhar deleted');}
+    else{S.delAt=Date.now();el.textContent='Tap again to delete';}
+    return;
+  }
   if(a==='edit'){
     var id=el.dataset.id;
     if(isDemo()){toast('That is a sample entry. Clear the samples to start with your own.');return;}
@@ -823,20 +1043,25 @@ document.addEventListener('click',async function(e){
   }
   if(a==='cleardemo'){S.cfg.demoOff=true;await store.cfg();render();toast('Samples cleared. Add your first entry.');return;}
   if(a==='csv'){if(!S.tx.length){toast('Nothing to export yet.');return;}await saveFile('hisab-kitab-'+today()+'.csv',toCsv());return;}
-  if(a==='json'){if(!S.tx.length&&!Object.keys(S.cfg.budgets||{}).length){toast('Nothing to back up yet.');return;}await saveFile('hisab-kitab-backup-'+today()+'.json',backupJson());return;}
+  if(a==='json'){if(!S.tx.length&&!S.loans.length&&!Object.keys(S.cfg.budgets||{}).length){toast('Nothing to back up yet.');return;}await saveFile('hisab-kitab-backup-'+today()+'.json',backupJson());return;}
   if(a==='import'){$('#imp').click();return;}
   if(a==='xlsx-import'){$('#impx').click();return;}
   if(a==='xlsx-export'){await exportXlsx();return;}
   if(a==='wipe'){
     if(S.wipeAt&&Date.now()-S.wipeAt<5000){
-      S.wipeAt=0;var ids=S.tx.map(function(x){return x.id;});S.cfg.demoOff=true;
+      S.wipeAt=0;var ids=S.tx.concat(S.loans).map(function(x){return x.id;});S.cfg.demoOff=true;
       for(var i=0;i<ids.length;i++){await store.del(ids[i]);}
       await store.cfg();render();toast('All entries deleted');
     }else{S.wipeAt=Date.now();render();setTimeout(function(){if(S.wipeAt&&Date.now()-S.wipeAt>=5000){S.wipeAt=0;if(S.view==='settings')render();}},5200);}
     return;
   }
 });
-document.addEventListener('submit',function(e){if(e.target.id==='tf'){e.preventDefault();saveForm();}});
+document.addEventListener('submit',function(e){
+  var id=e.target.id;
+  if(id==='tf'){e.preventDefault();saveForm();}
+  else if(id==='lf'){e.preventDefault();saveLoan();}
+  else if(id==='pf'){e.preventDefault();savePay();}
+});
 document.addEventListener('input',function(e){
   if(e.target.id==='q'){S.q=e.target.value;var l=$('#txlist');if(l)l.innerHTML=txListHtml(S.view==='business'?'business':'personal');}
 });
@@ -857,7 +1082,7 @@ document.addEventListener('change',async function(e){
   if(t.id==='imp'){var file=t.files&&t.files[0];t.value='';if(file)await importFile(file);}
   if(t.id==='impx'){var xf=t.files&&t.files[0];t.value='';if(xf)await importXlsx(xf);}
 });
-document.addEventListener('keydown',function(e){if(e.key==='Escape'&&S.form)closeForm();});
+document.addEventListener('keydown',function(e){if(e.key==='Escape'&&(S.form||S.lf||S.pf))closeForm();});
 var rt=null,lastW=0;
 window.addEventListener('resize',function(){
   clearTimeout(rt);rt=setTimeout(function(){var w=$('#app').clientWidth;if(Math.abs(w-lastW)>8){lastW=w;render();}},150);
